@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless S3 uploader with dashboard API and event-driven metadata processing
+
+Parameters:
+  UploadBucketName:
+    Type: String
+    Description: Name of the S3 bucket for uploaded files
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Allowed frontend origin for CORS
+  MaxFileSizeMb:
+    Type: Number
+    Default: 10
+    Description: Maximum upload size in MB
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 256
+
+Resources:
+  UploaderApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'OPTIONS,GET,POST'"
+        AllowHeaders: "'Content-Type'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref UploadBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - !Ref AllowedOrigin
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  UploadMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: object_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: object_key
+          KeyType: HASH
+
+  PresignUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: !Ref UploadBucketName
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          MAX_FILE_SIZE_MB: !Ref MaxFileSizeMb
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref UploadBucketName
+      Events:
+        GetPresignedUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UploaderApi
+            Path: /presign
+            Method: post
+
+  ListUploadsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: list_uploads.lambda_handler
+      Environment:
+        Variables:
+          METADATA_TABLE: !Ref UploadMetadataTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UploadMetadataTable
+      Events:
+        ListUploads:
+          Type: Api
+          Properties:
+            RestApiId: !Ref UploaderApi
+            Path: /uploads
+            Method: get
+
+  ObjectProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: processor.lambda_handler
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          UPLOAD_BUCKET: !Ref UploadBucketName
+          METADATA_TABLE: !Ref UploadMetadataTable
+          ENABLE_AI_TAGGING: 'false'
+          BEDROCK_MODEL_ID: ''
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref UploadBucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UploadMetadataTable
+      Events:
+        FileUploaded:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.s3
+              detail-type:
+                - Object Created
+              detail:
+                bucket:
+                  name:
+                    - !Ref UploadBucketName
+
+Outputs:
+  ApiBaseUrl:
+    Description: API Gateway base URL
+    Value: !Sub "https://${UploaderApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  PresignApiUrl:
+    Description: Presign endpoint URL
+    Value: !Sub "https://${UploaderApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presign"
+
+  UploadsApiUrl:
+    Description: Upload metadata endpoint URL
+    Value: !Sub "https://${UploaderApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/uploads"
+
+  UploadBucketNameOut:
+    Description: Upload bucket name
+    Value: !Ref UploadBucketName
+
+  MetadataTableNameOut:
+    Description: DynamoDB metadata table name
+    Value: !Ref UploadMetadataTable
