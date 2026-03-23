@@ -1,14 +1,59 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>S3 Uploader</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS S3 Serverless Uploader</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h2>Upload File</h2>
-  <input type="file" id="fileInput" />
-  <button onclick="upload()">Upload</button>
-  <p id="status"></p>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Serverless • S3 • Lambda • Dashboard</p>
+        <h1>AWS S3 Serverless Uploader</h1>
+        <p class="hero-copy">
+          Upload files directly to S3, process metadata serverlessly, and view uploads in a modern dashboard.
+        </p>
+      </div>
+    </header>
 
+    <main class="grid">
+      <section class="panel upload-panel">
+        <div class="panel-header">
+          <h2>Upload files</h2>
+          <p>Drag and drop files or browse from your device.</p>
+        </div>
+
+        <div id="dropZone" class="drop-zone">
+          <input id="fileInput" type="file" multiple hidden />
+          <div class="drop-zone-content">
+            <div class="upload-icon">☁️</div>
+            <p><strong>Drop files here</strong> or <button id="browseBtn" class="link-button" type="button">browse</button></p>
+            <p class="muted">Images, PDFs, text, Word, and Excel files</p>
+          </div>
+        </div>
+
+        <div id="uploadQueue" class="upload-queue"></div>
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="panel dashboard-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Upload dashboard</h2>
+            <p>Latest processed objects stored in DynamoDB.</p>
+          </div>
+          <button id="refreshBtn" class="secondary-button" type="button">Refresh</button>
+        </div>
+
+        <div id="stats" class="stats"></div>
+        <div id="dashboard" class="dashboard-cards"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
